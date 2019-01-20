@@ -231,6 +231,7 @@ GRPCXX_PUBLIC_HDRS = [
     "include/grpcpp/impl/sync_cxx11.h",
     "include/grpcpp/impl/sync_no_cxx11.h",
     "include/grpcpp/resource_quota.h",
+    "include/grpcpp/timestamps.h",
     "include/grpcpp/security/auth_context.h",
     "include/grpcpp/security/auth_metadata_processor.h",
     "include/grpcpp/security/credentials.h",
@@ -795,6 +796,7 @@ grpc_cc_library(
         "src/core/lib/slice/slice.cc",
         "src/core/lib/slice/slice_buffer.cc",
         "src/core/lib/slice/slice_intern.cc",
+        "src/core/lib/slice/slice_metadata.cc",
         "src/core/lib/slice/slice_string_helpers.cc",
         "src/core/lib/surface/api_trace.cc",
         "src/core/lib/surface/byte_buffer.cc",
@@ -933,6 +935,7 @@ grpc_cc_library(
         "src/core/lib/slice/percent_encoding.h",
         "src/core/lib/slice/slice_hash_table.h",
         "src/core/lib/slice/slice_internal.h",
+        "src/core/lib/slice/slice_metadata.h",
         "src/core/lib/slice/slice_string_helpers.h",
         "src/core/lib/slice/slice_weak_hash_table.h",
         "src/core/lib/surface/api_trace.h",
@@ -2021,6 +2024,7 @@ grpc_cc_library(
         "grpc++_codegen_base",
         "health_proto",
     ],
+    linkopts = ["-luuid"],
 )
 
 grpc_cc_library(
@@ -2034,6 +2038,7 @@ grpc_cc_library(
         "grpc_unsecure",
         "health_proto",
     ],
+    linkopts = ["-luuid"],
 )
 
 grpc_cc_library(

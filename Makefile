@@ -808,8 +808,8 @@ PROTOC_PLUGINS_DIR = $(BINDIR)/$(CONFIG)
 ifeq ($(HAS_SYSTEM_PROTOBUF),true)
 ifeq ($(HAS_PKG_CONFIG),true)
 PROTOBUF_PKG_CONFIG = true
-PC_REQUIRES_GRPCXX = protobuf
-CPPFLAGS := $(shell $(PKG_CONFIG) --cflags protobuf) $(CPPFLAGS)
+PC_REQUIRES_GRPCXX = protobuf uuid
+CPPFLAGS := $(shell $(PKG_CONFIG) --cflags protobuf uuid) $(CPPFLAGS)
 LDFLAGS_PROTOBUF_PKG_CONFIG = $(shell $(PKG_CONFIG) --libs-only-L protobuf)
 ifeq ($(SYSTEM),Linux)
 ifneq ($(LDFLAGS_PROTOBUF_PKG_CONFIG),)
@@ -817,7 +817,7 @@ LDFLAGS_PROTOBUF_PKG_CONFIG += $(shell $(PKG_CONFIG) --libs-only-L protobuf | se
 endif
 endif
 else
-PC_LIBS_GRPCXX = -lprotobuf
+PC_LIBS_GRPCXX = -lprotobuf -luuid
 endif
 PROTOC_PLUGINS = $(PROTOC_PLUGINS_ALL)
 else

@@ -66,6 +66,7 @@ def grpc_cc_library(
         hdrs = [],
         external_deps = [],
         deps = [],
+        linkopts = [],
         standalone = False,
         language = "C++",
         testonly = False,
@@ -96,7 +97,7 @@ def grpc_cc_library(
         copts = copts,
         visibility = visibility,
         testonly = testonly,
-        linkopts = if_not_windows(["-pthread"]),
+        linkopts = if_not_windows(["-pthread"]) + linkopts,
         includes = [
             "include",
         ],
