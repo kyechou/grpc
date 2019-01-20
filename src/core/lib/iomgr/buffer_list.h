@@ -36,6 +36,7 @@ struct Timestamps {
   gpr_timespec sendmsg_time;
   gpr_timespec scheduled_time;
   gpr_timespec sent_time;
+  gpr_timespec received_time;
   gpr_timespec acked_time;
 
   uint32_t byte_offset; /* byte offset relative to the start of the RPC */
@@ -58,7 +59,11 @@ class TracedBuffer {
   /** Add a new entry in the TracedBuffer list pointed to by head. Also saves
    * sendmsg_time with the current timestamp. */
   static void AddNewEntry(grpc_core::TracedBuffer** head, uint32_t seq_no,
-                          void* arg);
+                          uint32_t size, void* arg);
+
+  /** Delete an entry with the same seq_no from the TracedBuffer list pointed to
+   * by head. */
+  static void DeleteEntry(grpc_core::TracedBuffer** head, uint32_t seq_no);
 
   /** Processes a received timestamp based on sock_extended_err and
    * scm_timestamping structures. It will invoke the timestamps callback if the
@@ -83,6 +88,9 @@ class TracedBuffer {
   grpc_core::Timestamps ts_; /* The timestamps corresponding to this buffer */
   grpc_core::TracedBuffer* next_; /* The next TracedBuffer in the list */
 };
+
+extern void (*timestamps_callback)(void*, Timestamps*, grpc_error*);
+
 #else  /* GRPC_LINUX_ERRQUEUE */
 class TracedBuffer {
  public:

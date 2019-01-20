@@ -36,6 +36,7 @@
 #include <grpcpp/support/channel_arguments.h>
 #include <grpcpp/support/config.h>
 #include <grpcpp/support/status.h>
+#include <grpcpp/timestamps.h>
 
 struct grpc_server;
 
@@ -53,6 +54,9 @@ class ServerInitializer;
 class Server : public ServerInterface, private GrpcLibraryCodegen {
  public:
   ~Server();
+
+  void enable_timestamps(void (*fn)(TimestampsArgs *arg, Timestamps *timestamps));
+  void disable_timestamps();
 
   /// Block until the server shuts down.
   ///

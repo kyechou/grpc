@@ -41,6 +41,7 @@
 
 #include "src/core/ext/transport/inproc/inproc_transport.h"
 #include "src/core/lib/iomgr/exec_ctx.h"
+#include "src/core/lib/iomgr/buffer_list.h"
 #include "src/core/lib/profiling/timers.h"
 #include "src/core/lib/surface/call.h"
 #include "src/core/lib/surface/completion_queue.h"
@@ -746,6 +747,41 @@ Server::experimental_type::InProcessChannelWithInterceptors(
       grpc_inproc_channel_create(server_->server_, &channel_args, nullptr),
       std::move(interceptor_creators));
 }
+
+#ifdef GRPC_LINUX_ERRQUEUE
+
+static void (*__actual_ts_cb)(TimestampsArgs *arg, Timestamps *timestamps)
+    = nullptr;
+
+static void __ts_cb_wrapper(void *arg, grpc_core::Timestamps *timestamps,
+                            grpc_error *err) {
+  if (__actual_ts_cb)
+    __actual_ts_cb((TimestampsArgs *)arg, (Timestamps *)timestamps);
+  delete (TimestampsArgs *)arg;
+}
+
+void Server::enable_timestamps(void (*fn)(TimestampsArgs *arg,
+      Timestamps *timestamps)) {
+  __actual_ts_cb = fn;
+  grpc_core::grpc_tcp_set_write_timestamps_callback(&__ts_cb_wrapper);
+}
+
+void Server::disable_timestamps() {
+  __actual_ts_cb = nullptr;
+  grpc_core::grpc_tcp_set_write_timestamps_callback(nullptr);
+}
+
+#else /* GRPC_LINUX_ERRQUEUE */
+
+bool Server::enable_timestamps(void (*fn)(void *arg, Timestamps *timestamps)) {
+  gpr_log(GPR_DEBUG, "Timestamps callback is not enabled for this platform");
+}
+
+void Server::disable_timestamps() {
+  gpr_log(GPR_DEBUG, "Timestamps callback is not enabled for this platform");
+}
+
+#endif /* GRPC_LINUX_ERRQUEUE */
 
 static grpc_server_register_method_payload_handling PayloadHandlingForMethod(
     internal::RpcServiceMethod* method) {

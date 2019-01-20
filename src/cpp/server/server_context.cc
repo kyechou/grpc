@@ -33,6 +33,7 @@
 #include <grpcpp/support/time.h>
 
 #include "src/core/lib/surface/call.h"
+#include "src/core/lib/iomgr/buffer_list.h"
 
 namespace grpc {
 
@@ -235,6 +236,8 @@ ServerContext::ServerContext() { Setup(gpr_inf_future(GPR_CLOCK_REALTIME)); }
 ServerContext::ServerContext(gpr_timespec deadline, grpc_metadata_array* arr) {
   Setup(deadline);
   std::swap(*client_metadata_.arr(), *arr);
+  if (grpc_core::timestamps_callback)
+    set_timestamps_metadata();
 }
 
 void ServerContext::Setup(gpr_timespec deadline) {
@@ -254,6 +257,8 @@ void ServerContext::BindDeadlineAndMetadata(gpr_timespec deadline,
                                             grpc_metadata_array* arr) {
   deadline_ = deadline;
   std::swap(*client_metadata_.arr(), *arr);
+  if (grpc_core::timestamps_callback)
+    set_timestamps_metadata();
 }
 
 ServerContext::~ServerContext() { Clear(); }
@@ -312,6 +317,37 @@ void ServerContext::AddInitialMetadata(const grpc::string& key,
 void ServerContext::AddTrailingMetadata(const grpc::string& key,
                                         const grpc::string& value) {
   trailing_metadata_.insert(std::make_pair(key, value));
+}
+
+void ServerContext::set_timestamps_metadata() {
+  const std::multimap<grpc::string_ref, grpc::string_ref>& metadata
+    = client_metadata();
+  auto it = metadata.find("rpc_uuid");
+  if (it != metadata.end()) {
+    const grpc::string_ref uuid(it->second);
+    AddInitialMetadata("rpc_uuid", grpc::string(uuid.begin(), uuid.end()));
+  }
+  it = metadata.find("rpc_type");
+  if (it != metadata.end()) {
+    AddInitialMetadata("rpc_type", "response");
+  }
+  it = metadata.find("func_name");
+  if (it != metadata.end()) {
+    const grpc::string_ref name(it->second);
+    AddInitialMetadata("func_name", grpc::string(name.begin(), name.end()));
+  }
+}
+
+grpc::string ServerContext::get_uuid() {
+  const std::multimap<grpc::string_ref, grpc::string_ref>& metadata
+    = client_metadata();
+  auto it = metadata.find("rpc_uuid");
+  if (it != metadata.end()) {
+    const grpc::string_ref uuid(it->second);
+    return grpc::string(uuid.begin(), uuid.end());
+  } else {
+    return "";
+  }
 }
 
 void ServerContext::TryCancel() const {

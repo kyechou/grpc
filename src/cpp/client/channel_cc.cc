@@ -46,6 +46,7 @@
 #include "src/core/lib/gpr/string.h"
 #include "src/core/lib/gprpp/memory.h"
 #include "src/core/lib/gprpp/thd.h"
+#include "src/core/lib/iomgr/buffer_list.h"
 #include "src/core/lib/profiling/timers.h"
 #include "src/core/lib/surface/completion_queue.h"
 
@@ -68,6 +69,41 @@ Channel::~Channel() {
     callback_cq_->Shutdown();
   }
 }
+
+#ifdef GRPC_LINUX_ERRQUEUE
+
+static void (*__actual_ts_cb)(TimestampsArgs *arg, Timestamps *timestamps)
+    = nullptr;
+
+static void __ts_cb_wrapper(void *arg, grpc_core::Timestamps *timestamps,
+                            grpc_error *err) {
+  if (__actual_ts_cb)
+    __actual_ts_cb((TimestampsArgs *)arg, (Timestamps *)timestamps);
+  delete (TimestampsArgs *)arg;
+}
+
+void Channel::enable_timestamps(void (*fn)(TimestampsArgs *arg,
+      Timestamps *timestamps)) {
+  __actual_ts_cb = fn;
+  grpc_core::grpc_tcp_set_write_timestamps_callback(&__ts_cb_wrapper);
+}
+
+void Channel::disable_timestamps() {
+  __actual_ts_cb = nullptr;
+  grpc_core::grpc_tcp_set_write_timestamps_callback(nullptr);
+}
+
+#else /* GRPC_LINUX_ERRQUEUE */
+
+bool Channel::enable_timestamps(void (*fn)(void *arg, Timestamps *timestamps)) {
+  gpr_log(GPR_DEBUG, "Timestamps callback is not enabled for this platform");
+}
+
+void Channel::disable_timestamps() {
+  gpr_log(GPR_DEBUG, "Timestamps callback is not enabled for this platform");
+}
+
+#endif /* GRPC_LINUX_ERRQUEUE */
 
 namespace {
 

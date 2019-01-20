@@ -173,7 +173,7 @@ class InteropClientContextInspector;
 ///          alive and valid for the lifetime of the rpc.
 class ClientContext {
  public:
-  ClientContext();
+  ClientContext(const grpc::string& name = "unknown");
   ~ClientContext();
 
   /// Create a new \a ClientContext as a child of an incoming server call,
@@ -209,6 +209,10 @@ class ClientContext {
   /// ASCII-Value -> 1*( %x20-%x7E ) ; space and printable ASCII
   void AddMetadata(const grpc::string& meta_key,
                    const grpc::string& meta_value);
+
+  void set_timestamps_metadata(const grpc::string& func_name);
+
+  grpc::string get_uuid();
 
   /// Return a collection of initial metadata key-value pairs. Note that keys
   /// may happen more than once (ie, a \a std::multimap is returned).

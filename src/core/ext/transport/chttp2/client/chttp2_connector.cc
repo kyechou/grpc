@@ -36,6 +36,7 @@
 #include "src/core/lib/channel/handshaker.h"
 #include "src/core/lib/channel/handshaker_registry.h"
 #include "src/core/lib/iomgr/tcp_client.h"
+#include "src/core/lib/iomgr/tcp_posix.h"
 #include "src/core/lib/slice/slice_internal.h"
 
 typedef struct {
@@ -191,6 +192,10 @@ static void connected(void* arg, grpc_error* error) {
     chttp2_connector_unref(static_cast<grpc_connector*>(arg));
   } else {
     GPR_ASSERT(c->endpoint != nullptr);
+
+    // set socket options for timestamping
+    grpc_tcp_set_socket_ts(c->endpoint);
+
     start_handshake_locked(c);
     gpr_mu_unlock(&c->mu);
   }

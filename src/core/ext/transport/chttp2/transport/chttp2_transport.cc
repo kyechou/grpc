@@ -30,6 +30,7 @@
 #include <grpc/support/alloc.h>
 #include <grpc/support/log.h>
 #include <grpc/support/string_util.h>
+#include <grpcpp/timestamps.h>
 
 #include "src/core/ext/transport/chttp2/transport/context_list.h"
 #include "src/core/ext/transport/chttp2/transport/frame_data.h"
@@ -42,10 +43,12 @@
 #include "src/core/lib/gpr/string.h"
 #include "src/core/lib/gprpp/memory.h"
 #include "src/core/lib/http/parser.h"
+#include "src/core/lib/iomgr/buffer_list.h"
 #include "src/core/lib/iomgr/executor.h"
 #include "src/core/lib/iomgr/timer.h"
 #include "src/core/lib/profiling/timers.h"
 #include "src/core/lib/slice/slice_internal.h"
+#include "src/core/lib/slice/slice_metadata.h"
 #include "src/core/lib/slice/slice_string_helpers.h"
 #include "src/core/lib/transport/error_utils.h"
 #include "src/core/lib/transport/http2_errors.h"
@@ -1040,15 +1043,38 @@ static void write_action_begin_locked(void* gt, grpc_error* error_ignored) {
 }
 
 static void write_action(void* gt, grpc_error* error) {
+  grpc::TimestampsArgs *arg = nullptr;
   GPR_TIMER_SCOPE("write_action", 0);
   grpc_chttp2_transport* t = static_cast<grpc_chttp2_transport*>(gt);
-  void* cl = t->cl;
+
+  grpc_core::ContextList::Execute(t->cl, nullptr, nullptr);
   t->cl = nullptr;
+
+  /* Build timestamps arguments if it's enabled */
+  if (grpc_core::timestamps_callback) {
+    if (t->is_first_write_in_batch) {
+      arg = grpc_slice_buffer_get_tsarg(&t->outbuf);
+      // Store the arguments in transport for subsequent writes
+      t->rpc_uuid = arg ? arg->rpc_uuid : "";
+      t->rpc_type = arg ? arg->rpc_type : "";
+      t->func_name = arg ? arg->func_name : "";
+    } else if (!t->rpc_uuid.empty() && !t->rpc_type.empty()
+        && !t->func_name.empty()) {
+      arg = new grpc::TimestampsArgs;
+      arg->rpc_uuid = t->rpc_uuid;
+      arg->rpc_type = t->rpc_type;
+      arg->func_name = t->func_name;
+    }
+    if (arg) {
+      arg->peer = t->peer_string;
+    }
+  }
+
   grpc_endpoint_write(
       t->ep, &t->outbuf,
       GRPC_CLOSURE_INIT(&t->write_action_end_locked, write_action_end_locked, t,
                         grpc_combiner_scheduler(t->combiner)),
-      cl);
+      (void *)arg);
 }
 
 /* Callback from the grpc_endpoint after bytes have been written by calling

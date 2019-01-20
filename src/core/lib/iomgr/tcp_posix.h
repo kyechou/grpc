@@ -57,4 +57,13 @@ int grpc_tcp_fd(grpc_endpoint* ep);
 void grpc_tcp_destroy_and_release_fd(grpc_endpoint* ep, int* fd,
                                      grpc_closure* done);
 
+/*
+ * Enable timestamping by setting up socket options. It returns true for
+ * success, and false if setsockopt() failed.
+ * Note that TX recording options are set via the control message in
+ * tcp_write_with_timestamps(). The timestamping flags are defined in
+ * "./internal_errqueue.h".
+ */
+bool grpc_tcp_set_socket_ts(grpc_endpoint *ep);
+
 #endif /* GRPC_CORE_LIB_IOMGR_TCP_POSIX_H */

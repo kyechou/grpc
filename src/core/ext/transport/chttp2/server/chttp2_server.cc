@@ -42,6 +42,7 @@
 #include "src/core/lib/iomgr/resolve_address.h"
 #include "src/core/lib/iomgr/resource_quota.h"
 #include "src/core/lib/iomgr/tcp_server.h"
+#include "src/core/lib/iomgr/tcp_posix.h"
 #include "src/core/lib/slice/slice_internal.h"
 #include "src/core/lib/surface/api_trace.h"
 #include "src/core/lib/surface/server.h"
@@ -211,6 +212,10 @@ static void on_accept(void* arg, grpc_endpoint* tcp,
     gpr_free(acceptor);
     return;
   }
+
+  // set socket options for timestamping
+  grpc_tcp_set_socket_ts(tcp);
+
   grpc_handshake_manager* handshake_mgr = grpc_handshake_manager_create();
   grpc_handshake_manager_pending_list_add(&state->pending_handshake_mgrs,
                                           handshake_mgr);

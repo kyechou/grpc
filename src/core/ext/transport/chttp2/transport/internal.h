@@ -23,6 +23,7 @@
 
 #include <assert.h>
 #include <stdbool.h>
+#include <string>
 
 #include "src/core/ext/transport/chttp2/transport/flow_control.h"
 #include "src/core/ext/transport/chttp2/transport/frame.h"
@@ -297,6 +298,11 @@ struct grpc_chttp2_transport {
   grpc_core::RefCount refs;
   grpc_endpoint* ep;
   char* peer_string;
+
+  /** used for passing timestamps arguments to multiple write actions */
+  std::string rpc_uuid;
+  std::string rpc_type;
+  std::string func_name;
 
   grpc_resource_user* resource_user;
 

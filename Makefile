@@ -353,7 +353,7 @@ ifeq ($(SYSTEM),Darwin)
 CXXFLAGS += -stdlib=libc++
 endif
 CXXFLAGS += -Wnon-virtual-dtor
-CPPFLAGS += -g -Wall -Wextra -Werror -Wno-long-long -Wno-unused-parameter -DOSATOMIC_USE_INLINED=1 -Wno-deprecated-declarations -Ithird_party/nanopb -DPB_FIELD_32BIT
+CPPFLAGS += -g -Wall -Wextra -Werror -Wno-long-long -Wno-unused-parameter -DOSATOMIC_USE_INLINED=1 -Wno-deprecated-declarations -Ithird_party/nanopb -DPB_FIELD_32BIT -DGRPC_LINUX_ERRQUEUE
 COREFLAGS += -fno-rtti -fno-exceptions
 LDFLAGS += -g
 
@@ -3577,6 +3577,7 @@ LIBGRPC_SRC = \
     src/core/lib/slice/slice.cc \
     src/core/lib/slice/slice_buffer.cc \
     src/core/lib/slice/slice_intern.cc \
+    src/core/lib/slice/slice_metadata.cc \
     src/core/lib/slice/slice_string_helpers.cc \
     src/core/lib/surface/api_trace.cc \
     src/core/lib/surface/byte_buffer.cc \

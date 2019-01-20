@@ -42,6 +42,7 @@
 #include <grpc/support/string_util.h>
 #include <grpc/support/sync.h>
 #include <grpc/support/time.h>
+#include <grpcpp/timestamps.h>
 
 #include "src/core/lib/channel/channel_args.h"
 #include "src/core/lib/debug/stats.h"
@@ -53,6 +54,7 @@
 #include "src/core/lib/iomgr/executor.h"
 #include "src/core/lib/profiling/timers.h"
 #include "src/core/lib/slice/slice_internal.h"
+#include "src/core/lib/slice/slice_metadata.h"
 #include "src/core/lib/slice/slice_string_helpers.h"
 
 #ifdef GRPC_HAVE_MSG_NOSIGNAL
@@ -81,6 +83,9 @@ struct grpc_tcp {
   double bytes_read_this_round;
   gpr_refcount refcount;
   gpr_atm shutdown_count;
+
+  /* TimestampsArgs cache for tcp_do_read */
+  grpc::TimestampsArgs *tsarg_cache;
 
   int min_read_chunk_size;
   int max_read_chunk_size;
@@ -426,6 +431,20 @@ static void call_read_cb(grpc_tcp* tcp, grpc_error* error) {
   GRPC_CLOSURE_SCHED(cb, error);
 }
 
+#ifdef GRPC_LINUX_ERRQUEUE
+struct cmsghdr* process_timestamp(grpc_tcp* tcp, msghdr* msg,
+                                  struct cmsghdr* cmsg);
+
+namespace {
+/** Fills gpr_timespec gts based on values from timespec ts */
+void fill_gpr_from_timestamp(gpr_timespec* gts, const struct timespec* ts) {
+  gts->tv_sec = ts->tv_sec;
+  gts->tv_nsec = static_cast<int32_t>(ts->tv_nsec);
+  gts->clock_type = GPR_CLOCK_REALTIME;
+}
+} /* namespace */
+#endif /* GRPC_LINUX_ERRQUEUE */
+
 #define MAX_READ_IOVEC 4
 static void tcp_do_read(grpc_tcp* tcp) {
   GPR_TIMER_SCOPE("tcp_do_read", 0);
@@ -448,6 +467,19 @@ static void tcp_do_read(grpc_tcp* tcp) {
   msg.msg_control = nullptr;
   msg.msg_controllen = 0;
   msg.msg_flags = 0;
+
+#ifdef GRPC_LINUX_ERRQUEUE
+  union {
+    char rbuf[1024];
+    struct cmsghdr align;
+  } aligned_buf;
+  if (grpc_core::timestamps_callback) {
+    // set up control message for rx software timestamp
+    memset(&aligned_buf, 0, sizeof(aligned_buf));
+    msg.msg_control = aligned_buf.rbuf;
+    msg.msg_controllen = sizeof(aligned_buf.rbuf);
+  }
+#endif /* GRPC_LINUX_ERRQUEUE */
 
   GRPC_STATS_INC_TCP_READ_OFFER(tcp->incoming_buffer->length);
   GRPC_STATS_INC_TCP_READ_OFFER_IOV_SIZE(tcp->incoming_buffer->count);
@@ -491,6 +523,62 @@ static void tcp_do_read(grpc_tcp* tcp) {
           &tcp->last_read_buffer);
     }
     GPR_ASSERT((size_t)read_bytes == tcp->incoming_buffer->length);
+
+#ifdef GRPC_LINUX_ERRQUEUE
+    if (grpc_core::timestamps_callback) {
+      // get metadata if any
+      grpc::TimestampsArgs *arg =
+        grpc_slice_buffer_get_tsarg(tcp->incoming_buffer);
+      if (arg) {
+        tcp->tsarg_cache->rpc_uuid = arg->rpc_uuid;
+        tcp->tsarg_cache->rpc_type = arg->rpc_type;
+        tcp->tsarg_cache->func_name = arg->func_name;
+      }
+
+      struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
+      if (cmsg && cmsg->cmsg_len) {
+        if (cmsg->cmsg_level != SOL_SOCKET ||
+            cmsg->cmsg_type != SCM_TIMESTAMPING) {
+          if (grpc_tcp_trace.enabled()) {
+            gpr_log(GPR_INFO,
+                    "unknown control message cmsg_level:%d cmsg_type:%d",
+                    cmsg->cmsg_level, cmsg->cmsg_type);
+          }
+        } else {
+          GPR_ASSERT(CMSG_NXTHDR(&msg, cmsg) == nullptr);
+          // get timestamps arguments from the cache
+          if (!arg && !tcp->tsarg_cache->rpc_uuid.empty()
+              && !tcp->tsarg_cache->rpc_type.empty()
+              && !tcp->tsarg_cache->func_name.empty()) {
+            arg = new grpc::TimestampsArgs;
+            arg->rpc_uuid = tcp->tsarg_cache->rpc_uuid;
+            arg->rpc_type = tcp->tsarg_cache->rpc_type;
+            arg->func_name = tcp->tsarg_cache->func_name;
+          }
+          if (arg) {
+            // clear cache
+            tcp->tsarg_cache->rpc_uuid = "";
+            tcp->tsarg_cache->rpc_type = "";
+            tcp->tsarg_cache->func_name = "";
+            // complete arguments
+            arg->peer = tcp->peer_string;
+            arg->seq_no = 0;
+            arg->size = 0;
+            // get rx software timestamp
+            grpc_core::Timestamps ts;
+            memset(&ts, 0, sizeof(ts));
+            struct scm_timestamping *tss =
+              reinterpret_cast<struct scm_timestamping *>(CMSG_DATA(cmsg));
+            fill_gpr_from_timestamp(&(ts.received_time), &(tss->ts[0]));
+            grpc_core::timestamps_callback(arg, &ts, GRPC_ERROR_NONE);
+            arg = nullptr;
+          }
+        }
+      }
+      delete arg;
+    }
+#endif /* GRPC_LINUX_ERRQUEUE */
+
     call_read_cb(tcp, GRPC_ERROR_NONE);
     TCP_UNREF(tcp, "read");
   }
@@ -621,21 +709,29 @@ static bool tcp_write_with_timestamps(grpc_tcp* tcp, struct msghdr* msg,
   cmsg->cmsg_level = SOL_SOCKET;
   cmsg->cmsg_type = SO_TIMESTAMPING;
   cmsg->cmsg_len = CMSG_LEN(sizeof(uint32_t));
-  *reinterpret_cast<int*>(CMSG_DATA(cmsg)) =
+  *reinterpret_cast<uint32_t*>(CMSG_DATA(cmsg)) =
       grpc_core::kTimestampingRecordingOptions;
   msg->msg_control = u.cmsg_buf;
   msg->msg_controllen = CMSG_SPACE(sizeof(uint32_t));
+
+  /* Get sendmsg timestamp right before tcp_send */
+  gpr_mu_lock(&tcp->tb_mu);
+  grpc_core::TracedBuffer::AddNewEntry(&tcp->tb_head,
+      static_cast<uint32_t>(tcp->bytes_counter + sending_length),
+      static_cast<uint32_t>(sending_length),
+      tcp->outgoing_buffer_arg);
+  gpr_mu_unlock(&tcp->tb_mu);
 
   /* If there was an error on sendmsg the logic in tcp_flush will handle it. */
   ssize_t length = tcp_send(tcp->fd, msg);
   *sent_length = length;
   /* Only save timestamps if all the bytes were taken by sendmsg. */
-  if (sending_length == static_cast<size_t>(length)) {
+  if (sending_length != static_cast<size_t>(length)) {
     gpr_mu_lock(&tcp->tb_mu);
-    grpc_core::TracedBuffer::AddNewEntry(
-        &tcp->tb_head, static_cast<uint32_t>(tcp->bytes_counter + length),
-        tcp->outgoing_buffer_arg);
+    grpc_core::TracedBuffer::DeleteEntry(&tcp->tb_head,
+        static_cast<uint32_t>(tcp->bytes_counter + sending_length));
     gpr_mu_unlock(&tcp->tb_mu);
+  } else {
     tcp->outgoing_buffer_arg = nullptr;
   }
   return true;
@@ -1108,6 +1204,7 @@ grpc_endpoint* grpc_tcp_create(grpc_fd* em_fd,
   tcp->base.vtable = &vtable;
   tcp->peer_string = gpr_strdup(peer_string);
   tcp->fd = grpc_fd_wrapped_fd(em_fd);
+  tcp->tsarg_cache = new grpc::TimestampsArgs;
   tcp->read_cb = nullptr;
   tcp->write_cb = nullptr;
   tcp->release_fd_cb = nullptr;
@@ -1162,6 +1259,7 @@ void grpc_tcp_destroy_and_release_fd(grpc_endpoint* ep, int* fd,
   grpc_network_status_unregister_endpoint(ep);
   grpc_tcp* tcp = reinterpret_cast<grpc_tcp*>(ep);
   GPR_ASSERT(ep->vtable == &vtable);
+  delete tcp->tsarg_cache;
   tcp->release_fd = fd;
   tcp->release_fd_cb = done;
   grpc_slice_buffer_reset_and_unref_internal(&tcp->last_read_buffer);
@@ -1177,6 +1275,21 @@ void grpc_tcp_destroy_and_release_fd(grpc_endpoint* ep, int* fd,
     grpc_fd_set_error(tcp->em_fd);
   }
   TCP_UNREF(tcp, "destroy");
+}
+
+bool grpc_tcp_set_socket_ts(grpc_endpoint *ep) {
+  grpc_tcp *tcp = reinterpret_cast<grpc_tcp *>(ep);
+  if (!tcp->socket_ts_enabled) {
+    uint32_t opt = grpc_core::kTimestampingSocketOptions;
+    if (setsockopt(tcp->fd, SOL_SOCKET, SO_TIMESTAMPING,
+                   static_cast<void*>(&opt), sizeof(opt)) != 0) {
+      gpr_log(GPR_ERROR, "Failed to set timestamping socket options.");
+      return false;
+    }
+    tcp->bytes_counter = -1;
+    tcp->socket_ts_enabled = true;
+  }
+  return true;
 }
 
 #endif /* GRPC_POSIX_SOCKET_TCP */

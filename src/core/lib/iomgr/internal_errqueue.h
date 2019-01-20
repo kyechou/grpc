@@ -64,7 +64,8 @@ constexpr uint32_t SOF_TIMESTAMPING_TX_SCHED = 1u << 8;
 constexpr uint32_t SOF_TIMESTAMPING_TX_ACK = 1u << 9;
 constexpr uint32_t SOF_TIMESTAMPING_OPT_TSONLY = 1u << 11;
 
-constexpr uint32_t kTimestampingSocketOptions = SOF_TIMESTAMPING_SOFTWARE |
+constexpr uint32_t kTimestampingSocketOptions = SOF_TIMESTAMPING_RX_SOFTWARE |
+                                                SOF_TIMESTAMPING_SOFTWARE |
                                                 SOF_TIMESTAMPING_OPT_ID |
                                                 SOF_TIMESTAMPING_OPT_TSONLY;
 constexpr uint32_t kTimestampingRecordingOptions =

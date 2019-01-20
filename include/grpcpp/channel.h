@@ -28,6 +28,7 @@
 #include <grpcpp/impl/codegen/client_interceptor.h>
 #include <grpcpp/impl/codegen/config.h>
 #include <grpcpp/impl/codegen/grpc_library.h>
+#include <grpcpp/timestamps.h>
 
 struct grpc_channel;
 
@@ -47,6 +48,9 @@ class Channel final : public ChannelInterface,
                       private GrpcLibraryCodegen {
  public:
   ~Channel();
+
+  void enable_timestamps(void (*fn)(TimestampsArgs *arg, Timestamps *timestamps));
+  void disable_timestamps();
 
   /// Get the current channel state. If the channel is in IDLE and
   /// \a try_to_connect is set to true, try to connect.

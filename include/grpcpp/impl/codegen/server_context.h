@@ -116,6 +116,8 @@ class ServerContext {
     return Timespec2Timepoint(deadline_);
   }
 
+  grpc::string get_uuid();
+
   /// Return a \a gpr_timespec representation of the server call's deadline.
   gpr_timespec raw_deadline() const { return deadline_; }
 
@@ -318,6 +320,8 @@ class ServerContext {
   ServerContext(gpr_timespec deadline, grpc_metadata_array* arr);
 
   void set_call(grpc_call* call) { call_ = call; }
+
+  void set_timestamps_metadata();
 
   void BindDeadlineAndMetadata(gpr_timespec deadline, grpc_metadata_array* arr);
 

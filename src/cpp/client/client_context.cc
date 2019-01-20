@@ -29,6 +29,9 @@
 #include <grpcpp/security/credentials.h>
 #include <grpcpp/server_context.h>
 #include <grpcpp/support/time.h>
+#include "src/core/lib/iomgr/buffer_list.h"
+
+#include <uuid/uuid.h>
 
 namespace grpc {
 
@@ -46,7 +49,7 @@ static DefaultGlobalClientCallbacks* g_default_client_callbacks =
 static ClientContext::GlobalCallbacks* g_client_callbacks =
     g_default_client_callbacks;
 
-ClientContext::ClientContext()
+ClientContext::ClientContext(const grpc::string& name)
     : initial_metadata_received_(false),
       wait_for_ready_(false),
       wait_for_ready_explicitly_set_(false),
@@ -59,6 +62,8 @@ ClientContext::ClientContext()
       propagate_from_call_(nullptr),
       initial_metadata_corked_(false) {
   g_client_callbacks->DefaultConstructor(this);
+  if (grpc_core::timestamps_callback)
+    set_timestamps_metadata(name);
 }
 
 ClientContext::~ClientContext() {
@@ -79,6 +84,25 @@ std::unique_ptr<ClientContext> ClientContext::FromServerContext(
 void ClientContext::AddMetadata(const grpc::string& meta_key,
                                 const grpc::string& meta_value) {
   send_initial_metadata_.insert(std::make_pair(meta_key, meta_value));
+}
+
+void ClientContext::set_timestamps_metadata(const grpc::string& func_name) {
+  uuid_t new_id;
+  char new_id_str[UUID_STR_LEN];
+  uuid_generate(new_id);
+  uuid_unparse(new_id, new_id_str);
+  AddMetadata("rpc_uuid", new_id_str);
+  AddMetadata("rpc_type", "request");
+  AddMetadata("func_name", func_name);
+}
+
+grpc::string ClientContext::get_uuid() {
+  auto it = send_initial_metadata_.find("rpc_uuid");
+  if (it != send_initial_metadata_.end()) {
+    return it->second;
+  } else {
+    return "";
+  }
 }
 
 void ClientContext::set_call(grpc_call* call,
